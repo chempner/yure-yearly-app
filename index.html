@@ -442,24 +442,26 @@
 
                         <!-- Calendar Preview -->
                         ${totalEvents > 0 || isLoading ? `
-                            <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box; transform-origin: top left; transform: scale(min(1, calc((100vw - 32px) / 1587)));">
-                                <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
-                                    <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
-                                        YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
-                                    </h1>
-                                    <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
-                                </div>
+                            <div class="flex justify-center overflow-x-auto">
+                                <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; box-sizing: border-box;">
+                                    <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
+                                        <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
+                                            YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
+                                        </h1>
+                                        <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
+                                    </div>
 
-                                <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
-                                    <tbody>
-                                        <tr style="height: 48%;">
-                                            ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx)).join('')}
-                                        </tr>
-                                        <tr style="height: 48%;">
-                                            ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6)).join('')}
-                                        </tr>
-                                    </tbody>
-                                </table>
+                                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
+                                        <tbody>
+                                            <tr style="height: 48%;">
+                                                ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx)).join('')}
+                                            </tr>
+                                            <tr style="height: 48%;">
+                                                ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6)).join('')}
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         ` : `
                             <div class="bg-white rounded-lg shadow-lg p-12 text-center">
