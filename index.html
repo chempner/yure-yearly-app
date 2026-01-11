@@ -21,6 +21,8 @@
         ];
 
         let year = 2026;
+        let allEventsRaw = [];
+        let allTeamEventsRaw = [];
         let events = [];
         let teamEvents = [];
         let includeTeam = false;
@@ -28,6 +30,26 @@
         let isLoading = false;
         let teamUnlocked = false;
         const TEAM_PASSWORD = 'lordsendrevival';
+
+        function filterEventsByYear() {
+            events = allEventsRaw.filter(event => {
+                if (!event.start) return false;
+                return event.start.getFullYear() === parseInt(year);
+            });
+            events.sort((a, b) => a.start - b.start);
+            
+            teamEvents = allTeamEventsRaw.filter(event => {
+                if (!event.start) return false;
+                return event.start.getFullYear() === parseInt(year);
+            });
+            teamEvents.sort((a, b) => a.start - b.start);
+        }
+
+        function changeYear(newYear) {
+            year = newYear;
+            filterEventsByYear();
+            render();
+        }
 
         // Auto-refresh every 30 minutes
         setInterval(() => {
@@ -250,17 +272,8 @@
 
         function processCalendarData(text) {
             try {
-                const allEvents = parseICalendar(text);
-                
-                const filtered = allEvents.filter(event => {
-                    if (!event.start) return false;
-                    const eventYear = event.start.getFullYear();
-                    return eventYear === parseInt(year);
-                });
-                
-                filtered.sort((a, b) => a.start - b.start);
-                
-                events = filtered;
+                allEventsRaw = parseICalendar(text);
+                filterEventsByYear();
                 lastUpdated = new Date();
             } catch (err) {
                 console.error('Fehler beim Verarbeiten:', err);
@@ -269,17 +282,8 @@
 
         function processTeamCalendarData(text) {
             try {
-                const allEvents = parseICalendar(text);
-                
-                const filtered = allEvents.filter(event => {
-                    if (!event.start) return false;
-                    const eventYear = event.start.getFullYear();
-                    return eventYear === parseInt(year);
-                });
-                
-                filtered.sort((a, b) => a.start - b.start);
-                
-                teamEvents = filtered;
+                allTeamEventsRaw = parseICalendar(text);
+                filterEventsByYear();
             } catch (err) {
                 console.error('Fehler beim Verarbeiten des Team-Kalenders:', err);
             }
@@ -385,7 +389,21 @@
                                         <line x1="8" y1="2" x2="8" y2="6"></line>
                                         <line x1="3" y1="10" x2="21" y2="10"></line>
                                     </svg>
-                                    <h1 class="text-2xl font-bold text-gray-800">Youth Revival Kalender ${year}</h1>
+                                    <h1 class="text-2xl font-bold text-gray-800">Youth Revival Kalender</h1>
+                                    <div class="relative">
+                                        <select 
+                                            onchange="changeYear(parseInt(this.value))"
+                                            class="appearance-none text-2xl font-bold text-white bg-black hover:bg-gray-800 pl-4 pr-10 py-1 rounded-lg cursor-pointer outline-none transition"
+                                            style="max-height: 300px;"
+                                        >
+                                            ${Array.from({length: 2040 - 2020 + 1}, (_, i) => 2020 + i).map(y => `
+                                                <option value="${y}" ${y === year ? 'selected' : ''} class="text-black bg-white">${y}</option>
+                                            `).join('')}
+                                        </select>
+                                        <svg class="w-5 h-5 absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                        </svg>
+                                    </div>
                                 </div>
                                 
                                 <div class="flex items-center gap-3">
