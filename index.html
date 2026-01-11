@@ -374,7 +374,7 @@
             
             app.innerHTML = `
                 <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4">
-                    <div class="max-w-7xl mx-auto">
+                    <div style="width: 1587px; margin: 0 auto;">
                         <!-- Header -->
                         <div class="bg-white rounded-lg shadow-lg p-4 mb-4">
                             <div class="flex items-center justify-between flex-wrap gap-4">
@@ -442,26 +442,24 @@
 
                         <!-- Calendar Preview -->
                         ${totalEvents > 0 || isLoading ? `
-                            <div class="flex justify-center overflow-x-auto">
-                                <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; box-sizing: border-box;">
-                                    <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
-                                        <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
-                                            YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
-                                        </h1>
-                                        <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
-                                    </div>
-
-                                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
-                                        <tbody>
-                                            <tr style="height: 48%;">
-                                                ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx)).join('')}
-                                            </tr>
-                                            <tr style="height: 48%;">
-                                                ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6)).join('')}
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                            <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box;">
+                                <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
+                                    <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
+                                        YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
+                                    </h1>
+                                    <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
                                 </div>
+
+                                <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
+                                    <tbody>
+                                        <tr style="height: 48%;">
+                                            ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx)).join('')}
+                                        </tr>
+                                        <tr style="height: 48%;">
+                                            ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6)).join('')}
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
                         ` : `
                             <div class="bg-white rounded-lg shadow-lg p-12 text-center">
