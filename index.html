@@ -23,24 +23,39 @@
         let year = 2026;
         let events = [];
         let teamEvents = [];
-        let fileName = '';
         let includeTeam = false;
+        let lastUpdated = null;
+        let isLoading = false;
+
+        // Auto-refresh every 30 minutes
+        setInterval(() => {
+            console.log('Auto-refreshing calendar...');
+            fetchWebcal();
+        }, 30 * 60 * 1000);
+
+        function formatLastUpdated() {
+            if (!lastUpdated) return '';
+            return lastUpdated.toLocaleString('de-CH', { 
+                day: '2-digit', 
+                month: '2-digit', 
+                year: 'numeric',
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+        }
 
         function parseICalDate(dateStr, tzid = null) {
             if (!dateStr) return null;
             
-            // All-day event (DATE only, no time) - e.g., 20260115
             if (dateStr.length === 8) {
                 const y = parseInt(dateStr.substring(0, 4));
                 const m = parseInt(dateStr.substring(4, 6)) - 1;
                 const d = parseInt(dateStr.substring(6, 8));
-                // Return object with flag for all-day event
                 const date = new Date(y, m, d, 0, 0, 0);
                 date.isAllDay = true;
                 return date;
             }
             
-            // DateTime format - e.g., 20260115T190000 or 20260115T180000Z
             if (dateStr.includes('T')) {
                 const isUTC = dateStr.endsWith('Z');
                 const cleanDate = dateStr.replace('Z', '');
@@ -52,13 +67,10 @@
                 const s = parseInt(cleanDate.substring(13, 15)) || 0;
                 
                 if (isUTC) {
-                    // Convert UTC to Europe/Zurich
                     const utcDate = new Date(Date.UTC(y, m, d, h, min, s));
-                    // Create date in local timezone (Zurich)
                     const zurichDate = new Date(utcDate.toLocaleString('en-US', { timeZone: 'Europe/Zurich' }));
                     return zurichDate;
                 } else {
-                    // Already in local time (or specified TZID which is usually Europe/Zurich)
                     return new Date(y, m, d, h, min, s);
                 }
             }
@@ -70,18 +82,16 @@
             const events = [];
             const lines = icalData.split(/\r?\n/);
             let currentEvent = null;
-            let calendarTzid = 'Europe/Zurich'; // Default timezone
+            let calendarTzid = 'Europe/Zurich';
 
             for (let i = 0; i < lines.length; i++) {
                 let line = lines[i].trim();
                 
-                // Handle line folding (continuation lines)
                 while (i + 1 < lines.length && (lines[i + 1].startsWith(' ') || lines[i + 1].startsWith('\t'))) {
                     i++;
-                    line += lines[i].substring(1); // Remove the leading space/tab
+                    line += lines[i].substring(1);
                 }
 
-                // Get calendar timezone
                 if (line.startsWith('X-WR-TIMEZONE:')) {
                     calendarTzid = line.substring(14);
                 }
@@ -97,14 +107,12 @@
                         const keyPart = line.substring(0, colonIndex);
                         const value = line.substring(colonIndex + 1);
                         
-                        // Extract TZID if present
                         let tzid = null;
                         if (keyPart.includes('TZID=')) {
                             const tzMatch = keyPart.match(/TZID=([^;:]+)/);
                             if (tzMatch) tzid = tzMatch[1];
                         }
                         
-                        // Check for VALUE=DATE (all-day events)
                         const isDateOnly = keyPart.includes('VALUE=DATE') && !keyPart.includes('VALUE=DATE-TIME');
                         
                         if (keyPart.startsWith('DTSTART')) {
@@ -137,22 +145,16 @@
             const startDate = formatDate(event.start);
             
             if (event.end) {
-                // Clone dates to avoid modifying originals
                 const startDay = new Date(event.start.getFullYear(), event.start.getMonth(), event.start.getDate());
                 const endDay = new Date(event.end.getFullYear(), event.end.getMonth(), event.end.getDate());
                 
-                // For all-day events in iCal, DTEND is exclusive (the day AFTER the last day)
-                // For timed events, we check if it spans multiple calendar days
                 if (event.isAllDay) {
-                    // All-day event: DTEND is exclusive, so subtract 1 day
                     endDay.setDate(endDay.getDate() - 1);
                 }
                 
-                // Calculate difference in days
                 const daysDiff = Math.round((endDay - startDay) / (1000 * 60 * 60 * 24));
                 
                 if (daysDiff >= 1) {
-                    // Multi-day event
                     const endDateStr = formatDate(endDay);
                     return `${startDate} - ${endDateStr}`;
                 }
@@ -170,7 +172,7 @@
             }
             
             return allEvents.filter(event => {
-                return event.start.getMonth() === monthIndex;
+                return event.start && event.start.getMonth() === monthIndex;
             }).sort((a, b) => a.start - b.start);
         }
 
@@ -186,25 +188,10 @@
             return grouped;
         }
 
-        async function handleFileUpload(e) {
-            const file = e.target.files?.[0];
-            if (!file) return;
-
-            fileName = file.name;
-            
-            try {
-                const text = await file.text();
-                processCalendarData(text);
-            } catch (err) {
-                alert('Fehler: ' + err.message);
-            }
-        }
-
         async function fetchWithProxy(url) {
             const cacheBuster = `nocache=${Date.now()}`;
             const urlWithCache = url + (url.includes('?') ? '&' : '?') + cacheBuster;
             
-            // List of CORS proxies to try
             const proxies = [
                 `https://corsproxy.io/?${encodeURIComponent(urlWithCache)}`,
                 `https://api.allorigins.win/raw?url=${encodeURIComponent(urlWithCache)}`,
@@ -222,7 +209,6 @@
                     
                     if (response.ok) {
                         const text = await response.text();
-                        // Verify it's actually ICS data
                         if (text.includes('BEGIN:VCALENDAR')) {
                             return text;
                         }
@@ -236,18 +222,15 @@
         }
 
         async function fetchWebcal() {
-            if (!WEBCAL_URL) {
-                alert('Keine Webcal-URL konfiguriert. Bitte WEBCAL_URL im Code setzen.');
-                return;
-            }
+            if (isLoading) return;
+            isLoading = true;
+            render();
 
             try {
                 const text = await fetchWithProxy(WEBCAL_URL);
-                fileName = 'Webcal Feed';
                 processCalendarData(text);
             } catch (err) {
-                alert('Fehler beim Laden des Webcal Feeds: ' + err.message + '\n\nTipp: Lade die .ics Datei manuell herunter und nutze den Upload-Button.');
-                return;
+                console.error('Fehler beim Laden des Webcal Feeds:', err);
             }
 
             if (TEAM_WEBCAL_URL) {
@@ -255,9 +238,12 @@
                     const teamText = await fetchWithProxy(TEAM_WEBCAL_URL);
                     processTeamCalendarData(teamText);
                 } catch (err) {
-                    alert('Fehler beim Laden des Team-Kalenders: ' + err.message);
+                    console.error('Fehler beim Laden des Team-Kalenders:', err);
                 }
             }
+
+            isLoading = false;
+            render();
         }
 
         function processCalendarData(text) {
@@ -273,9 +259,9 @@
                 filtered.sort((a, b) => a.start - b.start);
                 
                 events = filtered;
-                render();
+                lastUpdated = new Date();
             } catch (err) {
-                alert('Fehler beim Verarbeiten: ' + err.message);
+                console.error('Fehler beim Verarbeiten:', err);
             }
         }
 
@@ -292,9 +278,8 @@
                 filtered.sort((a, b) => a.start - b.start);
                 
                 teamEvents = filtered;
-                render();
             } catch (err) {
-                alert('Fehler beim Verarbeiten des Team-Kalenders: ' + err.message);
+                console.error('Fehler beim Verarbeiten des Team-Kalenders:', err);
             }
         }
 
@@ -365,103 +350,85 @@
             }
         }
 
+        function switchTab(withTeam) {
+            includeTeam = withTeam;
+            render();
+        }
+
         function render() {
+            const totalEvents = events.length + (includeTeam ? teamEvents.length : 0);
             const app = document.getElementById('app');
             
             app.innerHTML = `
-                <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
-                    <div class="max-w-4xl mx-auto">
-                        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
-                            <div class="flex items-center gap-3 mb-6">
-                                <svg class="w-8 h-8 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                                    <line x1="16" y1="2" x2="16" y2="6"></line>
-                                    <line x1="8" y1="2" x2="8" y2="6"></line>
-                                    <line x1="3" y1="10" x2="21" y2="10"></line>
-                                </svg>
-                                <h1 class="text-3xl font-bold text-gray-800">Youth Revival Kalender</h1>
-                            </div>
-
-                            <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                                <p class="text-sm text-gray-800 mb-2"><strong>So funktioniert's:</strong></p>
-                                <ol class="text-sm text-gray-700 space-y-1 ml-4 list-decimal">
-                                    <li>Ersetze in deiner webcal:// URL das "webcal://" mit "https://"</li>
-                                    <li>Öffne die URL im Browser - es wird eine .ics Datei heruntergeladen</li>
-                                    <li>Lade die Datei hier hoch</li>
-                                </ol>
-                            </div>
-
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Jahr</label>
-                                <input 
-                                    type="number" 
-                                    value="${year}" 
-                                    onchange="year = parseInt(this.value); render();"
-                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
-                                />
-                            </div>
-
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Kalender-Datei hochladen (.ics)</label>
-                                <div class="flex items-center justify-center w-full">
-                                    <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-black border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                            <svg class="w-10 h-10 mb-3 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                                            </svg>
-                                            <p class="mb-2 text-sm text-gray-600"><span class="font-semibold">Klicken zum Hochladen</span></p>
-                                            <p class="text-xs text-gray-500">.ics Datei</p>
-                                            ${fileName ? `<p class="text-xs text-black mt-2 font-medium">Geladen: ${fileName}</p>` : ''}
-                                        </div>
-                                        <input type="file" accept=".ics,.ical" onchange="handleFileUpload(event)" class="hidden" />
-                                    </label>
-                                </div>
-                            </div>
-
-                            ${WEBCAL_URL ? `
-                                <div class="mb-4">
-                                    <button 
-                                        onclick="fetchWebcal()"
-                                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
-                                    >
-                                        Webcal Feed laden
-                                    </button>
-                                </div>
-                            ` : ''}
-
-                            ${TEAM_WEBCAL_URL ? `
-                                <div class="mb-4">
-                                    <label class="flex items-center gap-2 cursor-pointer">
-                                        <input 
-                                            type="checkbox" 
-                                            ${includeTeam ? 'checked' : ''}
-                                            onchange="includeTeam = this.checked; render();"
-                                            class="w-5 h-5 rounded border-gray-300 text-black focus:ring-black"
-                                        />
-                                        <span class="text-sm font-medium text-gray-700">Team Kalender einbeziehen</span>
-                                    </label>
-                                </div>
-                            ` : ''}
-
-                            ${events.length > 0 ? `
-                                <div class="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                                    <p class="text-green-800 font-medium">${events.length + (includeTeam ? teamEvents.length : 0)} Event${(events.length + (includeTeam ? teamEvents.length : 0)) !== 1 ? 's' : ''} gefunden für ${year}</p>
+                <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4">
+                    <div class="max-w-7xl mx-auto">
+                        <!-- Header -->
+                        <div class="bg-white rounded-lg shadow-lg p-4 mb-4">
+                            <div class="flex items-center justify-between flex-wrap gap-4">
+                                <div class="flex items-center gap-3">
+                                    <svg class="w-8 h-8 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                                    </svg>
+                                    <h1 class="text-2xl font-bold text-gray-800">Youth Revival Kalender ${year}</h1>
                                 </div>
                                 
-                                <button 
-                                    onclick="downloadAsImage()"
-                                    class="mt-4 w-full bg-black hover:bg-gray-800 text-white font-semibold py-3 px-6 rounded-lg transition duration-200 flex items-center justify-center gap-2"
-                                >
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                                    </svg>
-                                    Als Bild herunterladen (PNG)
-                                </button>
-                            ` : ''}
+                                <div class="flex items-center gap-3">
+                                    <!-- Tabs -->
+                                    <div class="flex rounded-lg overflow-hidden border border-gray-300">
+                                        <button 
+                                            onclick="switchTab(false)"
+                                            class="${!includeTeam ? 'bg-black text-white' : 'bg-white text-gray-700 hover:bg-gray-100'} px-4 py-2 font-medium transition"
+                                        >
+                                            Events
+                                        </button>
+                                        <button 
+                                            onclick="switchTab(true)"
+                                            class="${includeTeam ? 'bg-black text-white' : 'bg-white text-gray-700 hover:bg-gray-100'} px-4 py-2 font-medium transition"
+                                        >
+                                            + Teamevents
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Refresh Button -->
+                                    <button 
+                                        onclick="fetchWebcal()"
+                                        class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}"
+                                        title="Kalender neu laden"
+                                        ${isLoading ? 'disabled' : ''}
+                                    >
+                                        <svg class="w-5 h-5 ${isLoading ? 'animate-spin' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                        </svg>
+                                    </button>
+                                    
+                                    <!-- Download Button -->
+                                    ${totalEvents > 0 ? `
+                                        <button 
+                                            onclick="downloadAsImage()"
+                                            class="bg-black hover:bg-gray-800 text-white p-2 rounded-lg transition"
+                                            title="Als PNG herunterladen"
+                                        >
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                            </svg>
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            
+                            <!-- Status Bar -->
+                            <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-200 text-sm text-gray-500">
+                                <span>${totalEvents} Event${totalEvents !== 1 ? 's' : ''} ${includeTeam ? '(inkl. Team)' : ''}</span>
+                                <span>${lastUpdated ? `Aktualisiert: ${formatLastUpdated()} • Auto-Refresh alle 30 Min.` : (isLoading ? 'Laden...' : '')}</span>
+                            </div>
                         </div>
 
-                        ${events.length > 0 ? `
-                            <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box;">
+                        <!-- Calendar Preview -->
+                        ${totalEvents > 0 || isLoading ? `
+                            <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box; transform-origin: top left; transform: scale(min(1, calc((100vw - 32px) / 1587)));">
                                 <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
                                     <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
                                         YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
@@ -480,14 +447,25 @@
                                     </tbody>
                                 </table>
                             </div>
-                        ` : ''}
+                        ` : `
+                            <div class="bg-white rounded-lg shadow-lg p-12 text-center">
+                                <svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                                </svg>
+                                <p class="text-gray-500">Kalender wird geladen...</p>
+                            </div>
+                        `}
                     </div>
                 </div>
             `;
         }
 
-        // Initial render
+        // Initial render and auto-load
         render();
+        fetchWebcal();
     </script>
 </body>
 </html>
