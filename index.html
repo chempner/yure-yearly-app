@@ -216,62 +216,98 @@
             return grouped;
         }
 
+        async function fetchWithProxy(url) {
+            const cacheBuster = `nocache=${Date.now()}`;
+            const urlWithCache = url + (url.includes('?') ? '&' : '?') + cacheBuster;
+            
+            const proxies = [
+                `https://corsproxy.io/?${encodeURIComponent(urlWithCache)}`,
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(urlWithCache)}`,
+            ];
+            
+            for (const proxyUrl of proxies) {
+                try {
+                    const response = await fetch(proxyUrl, {
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache' }
+                    });
+                    
+                    if (response.ok) {
+                        const text = await response.text();
+                        if (text.includes('BEGIN:VCALENDAR')) {
+                            return text;
+                        }
+                    }
+                } catch (e) {
+                    console.log(`Proxy failed: ${proxyUrl}`, e);
+                }
+            }
+            
+            throw new Error('Alle Proxies fehlgeschlagen');
+        }
+
         async function fetchCalendars() {
             if (isLoading) return;
             isLoading = true;
             render();
 
+            let usedCGI = false;
+
+            // Try CGI endpoint first (works in Docker)
             try {
-                // Trigger server-side refresh first and wait for it
                 const refreshResponse = await fetch('/cgi-bin/refresh.cgi?t=' + Date.now());
                 if (refreshResponse.ok) {
                     const status = await refreshResponse.json();
                     if (status && status.lastUpdated) {
                         lastUpdated = new Date(status.lastUpdated);
+                        usedCGI = true;
                     }
                 }
             } catch (err) {
-                console.log('Server refresh nicht verfügbar, lade aus Cache...', err);
+                console.log('CGI nicht verfügbar, verwende CORS Proxy...', err);
             }
 
-            try {
-                // Fetch main calendar from local cache
-                const response = await fetch(CALENDAR_URL + '?t=' + Date.now());
-                if (response.ok) {
-                    const text = await response.text();
-                    allEventsRaw = parseICalendar(text);
-                }
-            } catch (err) {
-                console.error('Fehler beim Laden des Kalenders:', err);
-            }
-
-            try {
-                // Fetch team calendar from local cache
-                const teamResponse = await fetch(TEAM_CALENDAR_URL + '?t=' + Date.now());
-                if (teamResponse.ok) {
-                    const teamText = await teamResponse.text();
-                    allTeamEventsRaw = parseICalendar(teamText);
-                }
-            } catch (err) {
-                console.error('Fehler beim Laden des Team-Kalenders:', err);
-            }
-
-            // If we didn't get lastUpdated from CGI, try status.json
-            if (!lastUpdated) {
+            // If CGI worked, load from local cache
+            if (usedCGI) {
                 try {
-                    const statusResponse = await fetch(STATUS_URL + '?t=' + Date.now());
-                    if (statusResponse.ok) {
-                        const status = await statusResponse.json();
-                        lastUpdated = new Date(status.lastUpdated);
+                    const response = await fetch(CALENDAR_URL + '?t=' + Date.now());
+                    if (response.ok) {
+                        const text = await response.text();
+                        allEventsRaw = parseICalendar(text);
                     }
                 } catch (err) {
+                    console.error('Fehler beim Laden des Kalenders:', err);
+                }
+
+                try {
+                    const teamResponse = await fetch(TEAM_CALENDAR_URL + '?t=' + Date.now());
+                    if (teamResponse.ok) {
+                        const teamText = await teamResponse.text();
+                        allTeamEventsRaw = parseICalendar(teamText);
+                    }
+                } catch (err) {
+                    console.error('Fehler beim Laden des Team-Kalenders:', err);
+                }
+            } else {
+                // Fallback: use CORS proxies directly
+                try {
+                    const text = await fetchWithProxy('https://r.elvanto.eu/fullcalendar/753273ae-219b-4007-b86f-e794397cbbde/60a53343-8476-4ccd-8b1b-729f8ce7c5b8.ics');
+                    allEventsRaw = parseICalendar(text);
                     lastUpdated = new Date();
+                } catch (err) {
+                    console.error('Fehler beim Laden des Kalenders via Proxy:', err);
+                }
+
+                try {
+                    const teamText = await fetchWithProxy('https://r.elvanto.eu/fullcalendar/7b489ca4-e465-4eb4-b6cd-492ad1178b12/acaf434d-c2c0-41da-8403-73b1e3fabf92.ics');
+                    allTeamEventsRaw = parseICalendar(teamText);
+                } catch (err) {
+                    console.error('Fehler beim Laden des Team-Kalenders via Proxy:', err);
                 }
             }
 
             filterEventsByYear();
             
-            // Calculate optimal scale based on content
             if (events.length > 0 || teamEvents.length > 0) {
                 currentScale = findOptimalScale();
             }
