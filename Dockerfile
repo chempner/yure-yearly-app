@@ -22,7 +22,7 @@ COPY index.html /usr/share/nginx/html/index.html
 # Create data directory
 RUN mkdir -p /usr/share/nginx/html/data
 
-# Nginx config with CGI support
+# Nginx config with CGI support - fixed path
 RUN echo 'server {' > /etc/nginx/conf.d/default.conf && \
     echo '    listen 80;' >> /etc/nginx/conf.d/default.conf && \
     echo '    root /usr/share/nginx/html;' >> /etc/nginx/conf.d/default.conf && \
@@ -31,7 +31,10 @@ RUN echo 'server {' > /etc/nginx/conf.d/default.conf && \
     echo '        gzip off;' >> /etc/nginx/conf.d/default.conf && \
     echo '        fastcgi_pass unix:/var/run/fcgiwrap.socket;' >> /etc/nginx/conf.d/default.conf && \
     echo '        include fastcgi_params;' >> /etc/nginx/conf.d/default.conf && \
-    echo '        fastcgi_param SCRIPT_FILENAME /usr/share/nginx/cgi-bin/$fastcgi_script_name;' >> /etc/nginx/conf.d/default.conf && \
+    echo '        fastcgi_param SCRIPT_FILENAME /usr/share/nginx/cgi-bin/refresh.cgi;' >> /etc/nginx/conf.d/default.conf && \
+    echo '    }' >> /etc/nginx/conf.d/default.conf && \
+    echo '    location /data/ {' >> /etc/nginx/conf.d/default.conf && \
+    echo '        add_header Cache-Control "no-cache, no-store, must-revalidate";' >> /etc/nginx/conf.d/default.conf && \
     echo '    }' >> /etc/nginx/conf.d/default.conf && \
     echo '}' >> /etc/nginx/conf.d/default.conf
 
