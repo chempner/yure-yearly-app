@@ -11,9 +11,10 @@
     <div id="app"></div>
 
     <script>
-        // CONFIGURATION: Add your webcal URLs here
-        const WEBCAL_URL = 'https://r.elvanto.eu/fullcalendar/753273ae-219b-4007-b86f-e794397cbbde/60a53343-8476-4ccd-8b1b-729f8ce7c5b8.ics';
-        const TEAM_WEBCAL_URL = 'https://r.elvanto.eu/fullcalendar/7b489ca4-e465-4eb4-b6cd-492ad1178b12/acaf434d-c2c0-41da-8403-73b1e3fabf92.ics';
+        // Local cached calendar files (served by nginx)
+        const CALENDAR_URL = '/data/calendar.ics';
+        const TEAM_CALENDAR_URL = '/data/team-calendar.ics';
+        const STATUS_URL = '/data/status.json';
         
         const months = [
             'JANUAR', 'FEBRUAR', 'MÄRZ', 'APRIL', 'MAI', 'JUNI',
@@ -51,10 +52,10 @@
             render();
         }
 
-        // Auto-refresh every 30 minutes
+        // Auto-refresh every 30 minutes (sync with server-side cron)
         setInterval(() => {
             console.log('Auto-refreshing calendar...');
-            fetchWebcal();
+            fetchCalendars();
         }, 30 * 60 * 1000);
 
         function formatLastUpdated() {
@@ -212,81 +213,47 @@
             return grouped;
         }
 
-        async function fetchWithProxy(url) {
-            const cacheBuster = `nocache=${Date.now()}`;
-            const urlWithCache = url + (url.includes('?') ? '&' : '?') + cacheBuster;
-            
-            const proxies = [
-                `https://corsproxy.io/?${encodeURIComponent(urlWithCache)}`,
-                `https://api.allorigins.win/raw?url=${encodeURIComponent(urlWithCache)}`,
-                `https://proxy.cors.sh/${urlWithCache}`,
-            ];
-            
-            for (const proxyUrl of proxies) {
-                try {
-                    const response = await fetch(proxyUrl, {
-                        cache: 'no-store',
-                        headers: {
-                            'Cache-Control': 'no-cache'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        const text = await response.text();
-                        if (text.includes('BEGIN:VCALENDAR')) {
-                            return text;
-                        }
-                    }
-                } catch (e) {
-                    console.log(`Proxy failed: ${proxyUrl}`, e);
-                }
-            }
-            
-            throw new Error('Alle Proxies fehlgeschlagen');
-        }
-
-        async function fetchWebcal() {
+        async function fetchCalendars() {
             if (isLoading) return;
             isLoading = true;
             render();
 
             try {
-                const text = await fetchWithProxy(WEBCAL_URL);
-                processCalendarData(text);
-            } catch (err) {
-                console.error('Fehler beim Laden des Webcal Feeds:', err);
-            }
-
-            if (TEAM_WEBCAL_URL) {
-                try {
-                    const teamText = await fetchWithProxy(TEAM_WEBCAL_URL);
-                    processTeamCalendarData(teamText);
-                } catch (err) {
-                    console.error('Fehler beim Laden des Team-Kalenders:', err);
+                // Fetch main calendar from local cache
+                const response = await fetch(CALENDAR_URL + '?t=' + Date.now());
+                if (response.ok) {
+                    const text = await response.text();
+                    allEventsRaw = parseICalendar(text);
                 }
+            } catch (err) {
+                console.error('Fehler beim Laden des Kalenders:', err);
             }
 
+            try {
+                // Fetch team calendar from local cache
+                const teamResponse = await fetch(TEAM_CALENDAR_URL + '?t=' + Date.now());
+                if (teamResponse.ok) {
+                    const teamText = await teamResponse.text();
+                    allTeamEventsRaw = parseICalendar(teamText);
+                }
+            } catch (err) {
+                console.error('Fehler beim Laden des Team-Kalenders:', err);
+            }
+
+            try {
+                // Get last update time from server
+                const statusResponse = await fetch(STATUS_URL + '?t=' + Date.now());
+                if (statusResponse.ok) {
+                    const status = await statusResponse.json();
+                    lastUpdated = new Date(status.lastUpdated);
+                }
+            } catch (err) {
+                lastUpdated = new Date();
+            }
+
+            filterEventsByYear();
             isLoading = false;
             render();
-        }
-
-        function processCalendarData(text) {
-            try {
-                allEventsRaw = parseICalendar(text);
-                filterEventsByYear();
-                lastUpdated = new Date();
-            } catch (err) {
-                console.error('Fehler beim Verarbeiten:', err);
-            }
-        }
-
-        function processTeamCalendarData(text) {
-            try {
-                allTeamEventsRaw = parseICalendar(text);
-                filterEventsByYear();
-            } catch (err) {
-                console.error('Fehler beim Verarbeiten des Team-Kalenders:', err);
-            }
         }
 
         function renderMonthCell(month, monthIndex) {
@@ -426,7 +393,7 @@
                                     
                                     <!-- Refresh Button -->
                                     <button 
-                                        onclick="fetchWebcal()"
+                                        onclick="fetchCalendars()"
                                         class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}"
                                         title="Kalender neu laden"
                                         ${isLoading ? 'disabled' : ''}
@@ -454,7 +421,7 @@
                             <!-- Status Bar -->
                             <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-200 text-sm text-gray-500">
                                 <span>${totalEvents} Event${totalEvents !== 1 ? 's' : ''} ${includeTeam ? '(inkl. Team)' : ''}</span>
-                                <span>${lastUpdated ? `Aktualisiert: ${formatLastUpdated()} • Auto-Refresh alle 30 Min.` : (isLoading ? 'Laden...' : '')}</span>
+                                <span>${lastUpdated ? `Server-Cache: ${formatLastUpdated()} • Auto-Refresh alle 30 Min.` : (isLoading ? 'Laden...' : '')}</span>
                             </div>
                         </div>
 
@@ -497,7 +464,7 @@
 
         // Initial render and auto-load
         render();
-        fetchWebcal();
+        fetchCalendars();
     </script>
 </body>
 </html>
