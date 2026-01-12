@@ -49,6 +49,9 @@
         function changeYear(newYear) {
             year = newYear;
             filterEventsByYear();
+            if (events.length > 0 || teamEvents.length > 0) {
+                currentScale = findOptimalScale();
+            }
             render();
         }
 
@@ -260,31 +263,44 @@
 
             filterEventsByYear();
             isLoading = false;
+            
+            // Calculate optimal scale based on content
+            if (events.length > 0 || teamEvents.length > 0) {
+                currentScale = findOptimalScale();
+            }
+            
             render();
         }
 
-        function renderMonthCell(month, monthIndex) {
+        function renderMonthCell(month, monthIndex, scale = 1) {
             const monthEvents = getEventsForMonth(monthIndex);
             const groupedByDate = groupEventsByDate(monthEvents);
             
+            const titleSize = Math.round(18 * scale);
+            const eventSize = Math.round(11 * scale);
+            const dateSize = Math.round(10 * scale);
+            const padding = Math.round(6 * scale);
+            const gap = Math.round(6 * scale);
+            const radius = Math.round(6 * scale);
+            
             return `
                 <td style="width: 16.666%; vertical-align: top; padding: 0;">
-                    <div style="border: 2px solid #d4c4b0; border-radius: 8px; padding: 6px; background: rgba(255,255,255,0.5); height: 100%;">
-                        <h2 style="font-size: 18px; font-weight: 900; margin: 0 0 6px 0; padding-bottom: 6px; border-bottom: 2px solid #d4c4b0; color: #5a4a3a;">${month}</h2>
-                        <div>
+                    <div class="month-cell" style="border: 2px solid #d4c4b0; border-radius: 8px; padding: ${padding}px; background: rgba(255,255,255,0.5); height: 100%; overflow: hidden;">
+                        <h2 style="font-size: ${titleSize}px; font-weight: 900; margin: 0 0 ${padding}px 0; padding-bottom: ${padding}px; border-bottom: 2px solid #d4c4b0; color: #5a4a3a;">${month}</h2>
+                        <div class="month-content">
                             ${Object.keys(groupedByDate).length === 0 ? 
-                                '<p style="font-size: 12px; color: #999; font-style: italic; margin: 0;">Keine Events</p>' :
+                                `<p style="font-size: ${eventSize}px; color: #999; font-style: italic; margin: 0;">Keine Events</p>` :
                                 Object.entries(groupedByDate).map(([date, dayEvents], dayIdx) => `
-                                    ${dayIdx > 0 ? '<div style="height: 6px;"></div>' : ''}
-                                    <div style="background: rgba(212, 196, 176, 0.2); border: 1px solid #d4c4b0; border-radius: 6px; padding: 6px; margin-bottom: 0; font-size: 11px; line-height: 1.5;">
+                                    ${dayIdx > 0 ? `<div style="height: ${gap}px;"></div>` : ''}
+                                    <div style="background: rgba(212, 196, 176, 0.2); border: 1px solid #d4c4b0; border-radius: ${radius}px; padding: ${padding}px; margin-bottom: 0; font-size: ${eventSize}px; line-height: 1.4;">
                                         ${dayEvents.map((event, idx) => `
-                                            ${idx > 0 ? '<div style="height: 1px; background: #d4c4b0; margin: 6px 0;"></div>' : ''}
+                                            ${idx > 0 ? `<div style="height: 1px; background: #d4c4b0; margin: ${padding}px 0;"></div>` : ''}
                                             <div style="font-weight: bold; text-transform: uppercase; color: ${event.isTeam ? '#cc7c7c' : '#5a4a3a'}; margin: 0;">
                                                 ${event.summary}
                                             </div>
                                         `).join('')}
-                                        <div style="height: 1px; background: #d4c4b0; margin: 6px 0;"></div>
-                                        <div style="font-size: 10px; color: #7a6a5a; margin: 0;">
+                                        <div style="height: 1px; background: #d4c4b0; margin: ${padding}px 0;"></div>
+                                        <div style="font-size: ${dateSize}px; color: #7a6a5a; margin: 0;">
                                             ${formatDateRange(dayEvents[0])}
                                         </div>
                                     </div>
@@ -294,6 +310,73 @@
                     </div>
                 </td>
             `;
+        }
+
+        let currentScale = 1.0;
+
+        function renderCalendarWithScale(scale) {
+            const headerSize = Math.round(18 * scale);
+            const headerPadding = Math.round(8 * scale);
+            
+            return `
+                <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box;">
+                    <div style="margin-bottom: ${headerPadding}px; padding-bottom: ${headerPadding}px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
+                        <h1 style="font-size: ${headerSize}px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
+                            YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
+                        </h1>
+                        <div style="font-size: ${headerSize}px; font-weight: 900; color: #5a4a3a;">${year}</div>
+                    </div>
+
+                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed; height: calc(100% - ${40 * scale}px);">
+                        <tbody>
+                            <tr style="height: 50%;">
+                                ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx, scale)).join('')}
+                            </tr>
+                            <tr style="height: 50%;">
+                                ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6, scale)).join('')}
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function findOptimalScale() {
+            // Binary search for the best scale
+            let minScale = 0.6;
+            let maxScale = 2.0;
+            let bestScale = 1.0;
+            
+            for (let i = 0; i < 8; i++) {
+                const midScale = (minScale + maxScale) / 2;
+                
+                // Create a temporary hidden container to measure
+                const temp = document.createElement('div');
+                temp.style.cssText = 'position: absolute; visibility: hidden; pointer-events: none;';
+                temp.innerHTML = renderCalendarWithScale(midScale);
+                document.body.appendChild(temp);
+                
+                // Check if any month overflows
+                const cells = temp.querySelectorAll('.month-cell');
+                let hasOverflow = false;
+                
+                cells.forEach(cell => {
+                    if (cell.scrollHeight > cell.clientHeight + 2) {
+                        hasOverflow = true;
+                    }
+                });
+                
+                document.body.removeChild(temp);
+                
+                if (hasOverflow) {
+                    maxScale = midScale;
+                } else {
+                    bestScale = midScale;
+                    minScale = midScale;
+                }
+            }
+            
+            return bestScale;
         }
 
         async function downloadAsImage() {
@@ -336,6 +419,7 @@
                 if (password === TEAM_PASSWORD) {
                     teamUnlocked = true;
                     includeTeam = true;
+                    currentScale = findOptimalScale();
                     render();
                 } else if (password !== null) {
                     alert('Falsches Passwort!');
@@ -343,6 +427,7 @@
                 return;
             }
             includeTeam = withTeam;
+            currentScale = findOptimalScale();
             render();
         }
 
@@ -433,27 +518,7 @@
                         </div>
 
                         <!-- Calendar Preview -->
-                        ${totalEvents > 0 || isLoading ? `
-                            <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box;">
-                                <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
-                                    <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
-                                        YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
-                                    </h1>
-                                    <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
-                                </div>
-
-                                <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
-                                    <tbody>
-                                        <tr style="height: 48%;">
-                                            ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx)).join('')}
-                                        </tr>
-                                        <tr style="height: 48%;">
-                                            ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6)).join('')}
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        ` : `
+                        ${totalEvents > 0 || isLoading ? renderCalendarWithScale(currentScale) : `
                             <div class="bg-white rounded-lg shadow-lg p-12 text-center">
                                 <svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
