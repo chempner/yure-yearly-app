@@ -222,10 +222,16 @@
             render();
 
             try {
-                // Trigger server-side refresh first
-                await fetch('/cgi-bin/refresh.cgi?t=' + Date.now());
+                // Trigger server-side refresh first and wait for it
+                const refreshResponse = await fetch('/cgi-bin/refresh.cgi?t=' + Date.now());
+                if (refreshResponse.ok) {
+                    const status = await refreshResponse.json();
+                    if (status && status.lastUpdated) {
+                        lastUpdated = new Date(status.lastUpdated);
+                    }
+                }
             } catch (err) {
-                console.log('Server refresh nicht verfügbar, lade aus Cache...');
+                console.log('Server refresh nicht verfügbar, lade aus Cache...', err);
             }
 
             try {
@@ -250,25 +256,27 @@
                 console.error('Fehler beim Laden des Team-Kalenders:', err);
             }
 
-            try {
-                // Get last update time from server
-                const statusResponse = await fetch(STATUS_URL + '?t=' + Date.now());
-                if (statusResponse.ok) {
-                    const status = await statusResponse.json();
-                    lastUpdated = new Date(status.lastUpdated);
+            // If we didn't get lastUpdated from CGI, try status.json
+            if (!lastUpdated) {
+                try {
+                    const statusResponse = await fetch(STATUS_URL + '?t=' + Date.now());
+                    if (statusResponse.ok) {
+                        const status = await statusResponse.json();
+                        lastUpdated = new Date(status.lastUpdated);
+                    }
+                } catch (err) {
+                    lastUpdated = new Date();
                 }
-            } catch (err) {
-                lastUpdated = new Date();
             }
 
             filterEventsByYear();
-            isLoading = false;
             
             // Calculate optimal scale based on content
             if (events.length > 0 || teamEvents.length > 0) {
                 currentScale = findOptimalScale();
             }
             
+            isLoading = false;
             render();
         }
 
@@ -317,6 +325,9 @@
         function renderCalendarWithScale(scale) {
             const headerSize = Math.round(18 * scale);
             const headerPadding = Math.round(8 * scale);
+            // Fixed height: 1123px total - 15px padding top - 15px padding bottom - header area (~50px) = ~1043px for table
+            // Each row gets half: ~520px
+            const rowHeight = 520;
             
             return `
                 <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box;">
@@ -327,12 +338,12 @@
                         <div style="font-size: ${headerSize}px; font-weight: 900; color: #5a4a3a;">${year}</div>
                     </div>
 
-                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed; height: calc(100% - ${40 * scale}px);">
+                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
                         <tbody>
-                            <tr style="height: 50%;">
+                            <tr style="height: ${rowHeight}px;">
                                 ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx, scale)).join('')}
                             </tr>
-                            <tr style="height: 50%;">
+                            <tr style="height: ${rowHeight}px;">
                                 ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6, scale)).join('')}
                             </tr>
                         </tbody>
@@ -343,26 +354,36 @@
 
         function findOptimalScale() {
             // Binary search for the best scale
-            let minScale = 0.6;
-            let maxScale = 2.0;
+            let minScale = 0.5;
+            let maxScale = 2.5;
             let bestScale = 1.0;
             
-            for (let i = 0; i < 8; i++) {
+            for (let i = 0; i < 10; i++) {
                 const midScale = (minScale + maxScale) / 2;
                 
                 // Create a temporary hidden container to measure
                 const temp = document.createElement('div');
-                temp.style.cssText = 'position: absolute; visibility: hidden; pointer-events: none;';
+                temp.style.cssText = 'position: absolute; left: -9999px; top: 0; visibility: hidden;';
                 temp.innerHTML = renderCalendarWithScale(midScale);
                 document.body.appendChild(temp);
                 
-                // Check if any month overflows
+                // Check if any month content overflows its cell
                 const cells = temp.querySelectorAll('.month-cell');
                 let hasOverflow = false;
                 
                 cells.forEach(cell => {
-                    if (cell.scrollHeight > cell.clientHeight + 2) {
-                        hasOverflow = true;
+                    const content = cell.querySelector('.month-content');
+                    if (content) {
+                        // Get the available height (cell height minus the header)
+                        const cellHeight = cell.clientHeight;
+                        const header = cell.querySelector('h2');
+                        const headerHeight = header ? header.offsetHeight + parseInt(getComputedStyle(header).marginBottom || 0) : 0;
+                        const availableHeight = cellHeight - headerHeight - 10; // 10px buffer
+                        
+                        // Check if content is taller than available space
+                        if (content.scrollHeight > availableHeight) {
+                            hasOverflow = true;
+                        }
                     }
                 });
                 
@@ -376,7 +397,8 @@
                 }
             }
             
-            return bestScale;
+            // Round to 2 decimal places
+            return Math.round(bestScale * 100) / 100;
         }
 
         async function downloadAsImage() {
