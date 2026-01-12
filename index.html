@@ -293,8 +293,8 @@
             const radius = 6;
             
             return `
-                <td style="width: 16.666%; vertical-align: top; padding: 0; height: 100%;">
-                    <div class="month-cell" style="border: 2px solid #d4c4b0; border-radius: 8px; padding: ${padding}px; background: rgba(255,255,255,0.5); height: 100%; box-sizing: border-box; overflow: hidden;">
+                <td style="width: 16.666%; vertical-align: top; padding: 0;">
+                    <div class="month-cell" style="border: 2px solid #d4c4b0; border-radius: 8px; padding: ${padding}px; background: rgba(255,255,255,0.5);">
                         <h2 style="font-size: ${titleSize}px; font-weight: 900; margin: 0 0 ${padding}px 0; padding-bottom: ${padding}px; border-bottom: 2px solid #d4c4b0; color: #5a4a3a;">${month}</h2>
                         <div class="month-content">
                             ${Object.keys(groupedByDate).length === 0 ? 
@@ -333,12 +333,12 @@
                         <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
                     </div>
 
-                    <table style="width: 100%; height: calc(100% - 50px); border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
+                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
                         <tbody>
-                            <tr style="height: 50%;">
+                            <tr>
                                 ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx, scale)).join('')}
                             </tr>
-                            <tr style="height: 50%;">
+                            <tr>
                                 ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6, scale)).join('')}
                             </tr>
                         </tbody>
