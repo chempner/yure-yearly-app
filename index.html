@@ -219,6 +219,13 @@
             render();
 
             try {
+                // Trigger server-side refresh first
+                await fetch('/cgi-bin/refresh.cgi?t=' + Date.now());
+            } catch (err) {
+                console.log('Server refresh nicht verfügbar, lade aus Cache...');
+            }
+
+            try {
                 // Fetch main calendar from local cache
                 const response = await fetch(CALENDAR_URL + '?t=' + Date.now());
                 if (response.ok) {
