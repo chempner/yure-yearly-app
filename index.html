@@ -284,16 +284,17 @@
             const monthEvents = getEventsForMonth(monthIndex);
             const groupedByDate = groupEventsByDate(monthEvents);
             
-            const titleSize = Math.round(18 * scale);
-            const eventSize = Math.round(11 * scale);
-            const dateSize = Math.round(10 * scale);
-            const padding = Math.round(6 * scale);
-            const gap = Math.round(6 * scale);
-            const radius = Math.round(6 * scale);
+            // Fixed sizes that work at scale 1.0
+            const titleSize = 18;
+            const eventSize = 11;
+            const dateSize = 10;
+            const padding = 6;
+            const gap = 6;
+            const radius = 6;
             
             return `
-                <td style="width: 16.666%; vertical-align: top; padding: 0;">
-                    <div class="month-cell" style="border: 2px solid #d4c4b0; border-radius: 8px; padding: ${padding}px; background: rgba(255,255,255,0.5); height: 100%; overflow: hidden;">
+                <td style="width: 16.666%; vertical-align: top; padding: 0; height: 100%;">
+                    <div class="month-cell" style="border: 2px solid #d4c4b0; border-radius: 8px; padding: ${padding}px; background: rgba(255,255,255,0.5); height: 100%; box-sizing: border-box; overflow: hidden;">
                         <h2 style="font-size: ${titleSize}px; font-weight: 900; margin: 0 0 ${padding}px 0; padding-bottom: ${padding}px; border-bottom: 2px solid #d4c4b0; color: #5a4a3a;">${month}</h2>
                         <div class="month-content">
                             ${Object.keys(groupedByDate).length === 0 ? 
@@ -323,27 +324,21 @@
         let currentScale = 1.0;
 
         function renderCalendarWithScale(scale) {
-            const headerSize = Math.round(18 * scale);
-            const headerPadding = Math.round(8 * scale);
-            // Fixed height: 1123px total - 15px padding top - 15px padding bottom - header area (~50px) = ~1043px for table
-            // Each row gets half: ~520px
-            const rowHeight = 520;
-            
             return `
-                <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box;">
-                    <div style="margin-bottom: ${headerPadding}px; padding-bottom: ${headerPadding}px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
-                        <h1 style="font-size: ${headerSize}px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
+                <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box; overflow: hidden;">
+                    <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
+                        <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
                             YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
                         </h1>
-                        <div style="font-size: ${headerSize}px; font-weight: 900; color: #5a4a3a;">${year}</div>
+                        <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
                     </div>
 
-                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
+                    <table style="width: 100%; height: calc(100% - 50px); border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
                         <tbody>
-                            <tr style="height: ${rowHeight}px;">
+                            <tr style="height: 50%;">
                                 ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx, scale)).join('')}
                             </tr>
-                            <tr style="height: ${rowHeight}px;">
+                            <tr style="height: 50%;">
                                 ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6, scale)).join('')}
                             </tr>
                         </tbody>
@@ -353,52 +348,8 @@
         }
 
         function findOptimalScale() {
-            // Binary search for the best scale
-            let minScale = 0.5;
-            let maxScale = 2.5;
-            let bestScale = 1.0;
-            
-            for (let i = 0; i < 10; i++) {
-                const midScale = (minScale + maxScale) / 2;
-                
-                // Create a temporary hidden container to measure
-                const temp = document.createElement('div');
-                temp.style.cssText = 'position: absolute; left: -9999px; top: 0; visibility: hidden;';
-                temp.innerHTML = renderCalendarWithScale(midScale);
-                document.body.appendChild(temp);
-                
-                // Check if any month content overflows its cell
-                const cells = temp.querySelectorAll('.month-cell');
-                let hasOverflow = false;
-                
-                cells.forEach(cell => {
-                    const content = cell.querySelector('.month-content');
-                    if (content) {
-                        // Get the available height (cell height minus the header)
-                        const cellHeight = cell.clientHeight;
-                        const header = cell.querySelector('h2');
-                        const headerHeight = header ? header.offsetHeight + parseInt(getComputedStyle(header).marginBottom || 0) : 0;
-                        const availableHeight = cellHeight - headerHeight - 10; // 10px buffer
-                        
-                        // Check if content is taller than available space
-                        if (content.scrollHeight > availableHeight) {
-                            hasOverflow = true;
-                        }
-                    }
-                });
-                
-                document.body.removeChild(temp);
-                
-                if (hasOverflow) {
-                    maxScale = midScale;
-                } else {
-                    bestScale = midScale;
-                    minScale = midScale;
-                }
-            }
-            
-            // Round to 2 decimal places
-            return Math.round(bestScale * 100) / 100;
+            // For now, just return 1.0 - scaling is disabled until we fix overflow issues
+            return 1.0;
         }
 
         async function downloadAsImage() {
