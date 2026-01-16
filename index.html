@@ -11,10 +11,12 @@
     <div id="app"></div>
 
     <script>
-        // CONFIGURATION: Add your webcal URLs here
-        const WEBCAL_URL = 'https://r.elvanto.eu/fullcalendar/753273ae-219b-4007-b86f-e794397cbbde/60a53343-8476-4ccd-8b1b-729f8ce7c5b8.ics';
-        const TEAM_WEBCAL_URL = 'https://r.elvanto.eu/fullcalendar/7b489ca4-e465-4eb4-b6cd-492ad1178b12/acaf434d-c2c0-41da-8403-73b1e3fabf92.ics';
-        
+        // Local cached calendar files (served by nginx on TrueNAS)
+        const CALENDAR_URL = '/data/calendar.ics';
+        const TEAM_CALENDAR_URL = '/data/team-calendar.ics';
+        const STATUS_URL = '/data/status.json';
+        const REFRESH_URL = '/cgi-bin/refresh.cgi';
+
         const months = [
             'JANUAR', 'FEBRUAR', 'MÄRZ', 'APRIL', 'MAI', 'JUNI',
             'JULI', 'AUGUST', 'SEPTEMBER', 'OKTOBER', 'NOVEMBER', 'DEZEMBER'
@@ -48,13 +50,16 @@
         function changeYear(newYear) {
             year = newYear;
             filterEventsByYear();
+            if (events.length > 0 || teamEvents.length > 0) {
+                currentScale = findOptimalScale();
+            }
             render();
         }
 
-        // Auto-refresh every 30 minutes
+        // Auto-refresh every 30 minutes (sync with server-side cron)
         setInterval(() => {
             console.log('Auto-refreshing calendar...');
-            fetchWebcal();
+            fetchCalendars();
         }, 30 * 60 * 1000);
 
         function formatLastUpdated() {
@@ -212,105 +217,99 @@
             return grouped;
         }
 
-        async function fetchWithProxy(url) {
-            const cacheBuster = `nocache=${Date.now()}`;
-            const urlWithCache = url + (url.includes('?') ? '&' : '?') + cacheBuster;
-            
-            const proxies = [
-                `https://corsproxy.io/?${encodeURIComponent(urlWithCache)}`,
-                `https://api.allorigins.win/raw?url=${encodeURIComponent(urlWithCache)}`,
-                `https://proxy.cors.sh/${urlWithCache}`,
-            ];
-            
-            for (const proxyUrl of proxies) {
-                try {
-                    const response = await fetch(proxyUrl, {
-                        cache: 'no-store',
-                        headers: {
-                            'Cache-Control': 'no-cache'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        const text = await response.text();
-                        if (text.includes('BEGIN:VCALENDAR')) {
-                            return text;
-                        }
-                    }
-                } catch (e) {
-                    console.log(`Proxy failed: ${proxyUrl}`, e);
-                }
-            }
-            
-            throw new Error('Alle Proxies fehlgeschlagen');
-        }
-
-        async function fetchWebcal() {
+        async function fetchCalendars() {
             if (isLoading) return;
             isLoading = true;
             render();
 
+            // Trigger server-side refresh (fetches from Elvanto and updates cache)
             try {
-                const text = await fetchWithProxy(WEBCAL_URL);
-                processCalendarData(text);
+                const refreshResponse = await fetch(REFRESH_URL + '?t=' + Date.now());
+                if (refreshResponse.ok) {
+                    const status = await refreshResponse.json();
+                    if (status && status.lastUpdated) {
+                        lastUpdated = new Date(status.lastUpdated);
+                    }
+                }
             } catch (err) {
-                console.error('Fehler beim Laden des Webcal Feeds:', err);
+                console.error('Refresh CGI failed:', err);
             }
 
-            if (TEAM_WEBCAL_URL) {
+            // Load calendar from local cache
+            try {
+                const response = await fetch(CALENDAR_URL + '?t=' + Date.now());
+                if (response.ok) {
+                    const text = await response.text();
+                    allEventsRaw = parseICalendar(text);
+                }
+            } catch (err) {
+                console.error('Fehler beim Laden des Kalenders:', err);
+            }
+
+            // Load team calendar from local cache
+            try {
+                const teamResponse = await fetch(TEAM_CALENDAR_URL + '?t=' + Date.now());
+                if (teamResponse.ok) {
+                    const teamText = await teamResponse.text();
+                    allTeamEventsRaw = parseICalendar(teamText);
+                }
+            } catch (err) {
+                console.error('Fehler beim Laden des Team-Kalenders:', err);
+            }
+
+            // Get last updated time if we didn't get it from refresh
+            if (!lastUpdated) {
                 try {
-                    const teamText = await fetchWithProxy(TEAM_WEBCAL_URL);
-                    processTeamCalendarData(teamText);
+                    const statusResponse = await fetch(STATUS_URL + '?t=' + Date.now());
+                    if (statusResponse.ok) {
+                        const status = await statusResponse.json();
+                        lastUpdated = new Date(status.lastUpdated);
+                    }
                 } catch (err) {
-                    console.error('Fehler beim Laden des Team-Kalenders:', err);
+                    console.error('Status fetch failed:', err);
                 }
             }
 
+            filterEventsByYear();
+            
+            if (events.length > 0 || teamEvents.length > 0) {
+                currentScale = findOptimalScale();
+            }
+            
             isLoading = false;
             render();
         }
 
-        function processCalendarData(text) {
-            try {
-                allEventsRaw = parseICalendar(text);
-                filterEventsByYear();
-                lastUpdated = new Date();
-            } catch (err) {
-                console.error('Fehler beim Verarbeiten:', err);
-            }
-        }
-
-        function processTeamCalendarData(text) {
-            try {
-                allTeamEventsRaw = parseICalendar(text);
-                filterEventsByYear();
-            } catch (err) {
-                console.error('Fehler beim Verarbeiten des Team-Kalenders:', err);
-            }
-        }
-
-        function renderMonthCell(month, monthIndex) {
+        function renderMonthCell(month, monthIndex, scale = 1) {
             const monthEvents = getEventsForMonth(monthIndex);
             const groupedByDate = groupEventsByDate(monthEvents);
             
+            // Fixed sizes that work at scale 1.0
+            const titleSize = 18;
+            const eventSize = 11;
+            const dateSize = 10;
+            const padding = 6;
+            const gap = 6;
+            const radius = 6;
+            
             return `
                 <td style="width: 16.666%; vertical-align: top; padding: 0;">
-                    <div style="border: 2px solid #d4c4b0; border-radius: 8px; padding: 6px; background: rgba(255,255,255,0.5); height: 100%;">
-                        <h2 style="font-size: 18px; font-weight: 900; margin: 0 0 6px 0; padding-bottom: 6px; border-bottom: 2px solid #d4c4b0; color: #5a4a3a;">${month}</h2>
-                        <div>
+                    <div class="month-cell" style="border: 2px solid #d4c4b0; border-radius: 8px; padding: ${padding}px; background: rgba(255,255,255,0.5);">
+                        <h2 style="font-size: ${titleSize}px; font-weight: 900; margin: 0 0 ${padding}px 0; padding-bottom: ${padding}px; border-bottom: 2px solid #d4c4b0; color: #5a4a3a;">${month}</h2>
+                        <div class="month-content">
                             ${Object.keys(groupedByDate).length === 0 ? 
-                                '<p style="font-size: 12px; color: #999; font-style: italic; margin: 0;">Keine Events</p>' :
+                                `<p style="font-size: ${eventSize}px; color: #999; font-style: italic; margin: 0;">Keine Events</p>` :
                                 Object.entries(groupedByDate).map(([date, dayEvents], dayIdx) => `
-                                    ${dayIdx > 0 ? '<div style="height: 6px;"></div>' : ''}
-                                    <div style="background: rgba(212, 196, 176, 0.2); border: 1px solid #d4c4b0; border-radius: 6px; padding: 6px; margin-bottom: 0; font-size: 11px; line-height: 1.5;">
+                                    ${dayIdx > 0 ? `<div style="height: ${gap}px;"></div>` : ''}
+                                    <div style="background: rgba(212, 196, 176, 0.2); border: 1px solid #d4c4b0; border-radius: ${radius}px; padding: ${padding}px; margin-bottom: 0; font-size: ${eventSize}px; line-height: 1.4;">
                                         ${dayEvents.map((event, idx) => `
-                                            ${idx > 0 ? '<div style="height: 1px; background: #d4c4b0; margin: 6px 0;"></div>' : ''}
-                                            <div style="font-weight: bold; text-transform: uppercase; color: ${event.isTeam ? '#cc7c7c' : '#5a4a3a'}; margin: 0;">
+                                            ${idx > 0 ? `<div style="height: 1px; background: #d4c4b0; margin: ${padding}px 0;"></div>` : ''}
+                                            <div style="font-weight: bold; text-transform: uppercase; color: ${event.isTeam ? '#cc7c7c' : (event.summary && event.summary.toUpperCase() === 'YOUTH REVIVAL' ? '#20b2aa' : '#5a4a3a')}; margin: 0;">
                                                 ${event.summary}
                                             </div>
                                         `).join('')}
-                                        <div style="height: 1px; background: #d4c4b0; margin: 6px 0;"></div>
-                                        <div style="font-size: 10px; color: #7a6a5a; margin: 0;">
+                                        <div style="height: 1px; background: #d4c4b0; margin: ${padding}px 0;"></div>
+                                        <div style="font-size: ${dateSize}px; color: #7a6a5a; margin: 0;">
                                             ${formatDateRange(dayEvents[0])}
                                         </div>
                                     </div>
@@ -320,6 +319,37 @@
                     </div>
                 </td>
             `;
+        }
+
+        let currentScale = 1.0;
+
+        function renderCalendarWithScale(scale) {
+            return `
+                <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box; overflow: hidden;">
+                    <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
+                        <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
+                            YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
+                        </h1>
+                        <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
+                    </div>
+
+                    <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
+                        <tbody>
+                            <tr>
+                                ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx, scale)).join('')}
+                            </tr>
+                            <tr>
+                                ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6, scale)).join('')}
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function findOptimalScale() {
+            // For now, just return 1.0 - scaling is disabled until we fix overflow issues
+            return 1.0;
         }
 
         async function downloadAsImage() {
@@ -362,6 +392,7 @@
                 if (password === TEAM_PASSWORD) {
                     teamUnlocked = true;
                     includeTeam = true;
+                    currentScale = findOptimalScale();
                     render();
                 } else if (password !== null) {
                     alert('Falsches Passwort!');
@@ -369,6 +400,7 @@
                 return;
             }
             includeTeam = withTeam;
+            currentScale = findOptimalScale();
             render();
         }
 
@@ -426,7 +458,7 @@
                                     
                                     <!-- Refresh Button -->
                                     <button 
-                                        onclick="fetchWebcal()"
+                                        onclick="fetchCalendars()"
                                         class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}"
                                         title="Kalender neu laden"
                                         ${isLoading ? 'disabled' : ''}
@@ -454,32 +486,12 @@
                             <!-- Status Bar -->
                             <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-200 text-sm text-gray-500">
                                 <span>${totalEvents} Event${totalEvents !== 1 ? 's' : ''} ${includeTeam ? '(inkl. Team)' : ''}</span>
-                                <span>${lastUpdated ? `Aktualisiert: ${formatLastUpdated()} • Auto-Refresh alle 30 Min.` : (isLoading ? 'Laden...' : '')}</span>
+                                <span>${lastUpdated ? `Server-Cache: ${formatLastUpdated()} • Auto-Refresh alle 30 Min.` : (isLoading ? 'Laden...' : '')}</span>
                             </div>
                         </div>
 
                         <!-- Calendar Preview -->
-                        ${totalEvents > 0 || isLoading ? `
-                            <div id="calendar-preview" style="width: 1587px; height: 1123px; background: #f5f1eb; padding: 15px; margin: 0 auto; box-sizing: border-box;">
-                                <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 4px solid #d4c4b0; display: flex; align-items: center; justify-content: space-between;">
-                                    <h1 style="font-size: 18px; font-weight: 900; color: #5a4a3a; letter-spacing: -0.025em; margin: 0;">
-                                        YOUTH REVIVAL EVENTS${includeTeam ? ' + TEAM DATEN' : ''}
-                                    </h1>
-                                    <div style="font-size: 18px; font-weight: 900; color: #5a4a3a;">${year}</div>
-                                </div>
-
-                                <table style="width: 100%; border-collapse: separate; border-spacing: 10px; table-layout: fixed;">
-                                    <tbody>
-                                        <tr style="height: 48%;">
-                                            ${months.slice(0, 6).map((month, idx) => renderMonthCell(month, idx)).join('')}
-                                        </tr>
-                                        <tr style="height: 48%;">
-                                            ${months.slice(6, 12).map((month, idx) => renderMonthCell(month, idx + 6)).join('')}
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        ` : `
+                        ${totalEvents > 0 || isLoading ? renderCalendarWithScale(currentScale) : `
                             <div class="bg-white rounded-lg shadow-lg p-12 text-center">
                                 <svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -497,7 +509,7 @@
 
         // Initial render and auto-load
         render();
-        fetchWebcal();
+        fetchCalendars();
     </script>
 </body>
 </html>
